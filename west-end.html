@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VAP | West End Property Explorer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{font-family:system-ui,Arial,sans-serif;color:#eaf1f5;background:#0b1721}*{box-sizing:border-box}body{margin:0}header{padding:16px 22px;background:#102a39;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}a{color:#9ce5d6}h1{font-size:1.45rem;margin:0}main{display:grid;grid-template-columns:minmax(260px,340px) 1fr;min-height:calc(100vh - 78px)}aside{padding:20px;overflow:auto}#map{height:calc(100vh - 78px);min-height:550px;background:#d7e2e6}.muted{color:#b4c6d0;font-size:.9rem}button,select,input{padding:10px;border:1px solid #567487;border-radius:6px;background:#153449;color:white;max-width:100%}button{cursor:pointer}button:hover{background:#20506a}label{display:block;margin:14px 0 6px}.notice{padding:12px;border-left:3px solid #e2ba6c;background:#21303b;margin:16px 0;font-size:.88rem}.stat{font-weight:700;font-size:1.3rem}#results{font-size:.85rem;max-height:260px;overflow:auto}#results p{border-bottom:1px solid #38505e;padding:6px 0}footer{font-size:.8rem;color:#b4c6d0;margin-top:18px}@media(max-width:750px){main{display:flex;flex-direction:column}#map{height:65vh;min-height:430px}aside{order:2}}
+</style></head><body>
+<header><div><h1>VAP — WEST END</h1><div class="muted">Vacant properties · enforcement · foreclosure pipeline</div></div><a href="./index.html">← Louisville-wide VAP map</a></header>
+<main><aside>
+<label for="neighborhood">Neighborhood focus</label><select id="neighborhood"><option value="all">All West End neighborhoods</option></select>
+<label for="layer">Property layer</label><select id="layer"><option value="all">All available layers</option><option value="cut">Annual Cut List — Foreclosure Pipeline</option><option value="work">Open work orders</option><option value="landbank">Metro / Landbank</option></select>
+<label for="search">Search loaded property addresses</label><input id="search" placeholder="Enter address or parcel ID" style="width:100%">
+<p><button id="export">Export displayed records (CSV)</button></p>
+<div class="notice"><strong>Annual Cut List classification</strong><p>Foreclosure pipeline, based on firsthand attendee confirmation at the Neighborhood Improvement Committee (NIC) meeting, October 2026. Inclusion does not independently establish a filed lawsuit, foreclosure judgment, completed foreclosure, or vacancy. Owners may still respond and prevent further action. An approximately two-year process was reported but is not independently verified.</p></div>
+<div class="stat" id="count">0 property records loaded</div><p class="muted" id="status">Map ready. Connect the existing VAP layer data to populate address-level records.</p><div id="results" aria-live="polite"></div>
+<footer>Neighborhood focus uses approximate map centers, not official neighborhood boundaries. Property inclusion requires verified coordinates or official boundary intersection. No property is classified vacant solely because it appears on a cut list.</footer>
+</aside><div id="map" role="region" aria-label="Interactive West End Louisville map"></div></main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const areas={
+'Russell':[38.257,-85.781],'Shawnee':[38.264,-85.814],'Portland':[38.272,-85.792],
+'Chickasaw':[38.254,-85.826],'Parkland':[38.241,-85.798],'California':[38.244,-85.781],
+'Park Hill':[38.230,-85.783],'Algonquin':[38.228,-85.794],'Taylor Berry':[38.216,-85.786]
+};
+const map=L.map('map').setView([38.248,-85.797],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}).addTo(map);
+const bounds=L.latLngBounds(Object.values(areas));map.fitBounds(bounds.pad(.25));
+const neighborhoods=document.getElementById('neighborhood');
+Object.keys(areas).forEach(name=>{const opt=document.createElement('option');opt.value=name;opt.textContent=name;neighborhoods.append(opt)});
+const markers=L.layerGroup().addTo(map);
+let records=[];
+const clean=s=>String(s??'').replace(/[<>]/g,'');
+function visible(){const q=document.getElementById('search').value.toLowerCase().trim(),layer=document.getElementById('layer').value;
+return records.filter(r=>(layer==='all'||r.layer===layer)&&(!q||(String(r.address||'')+' '+String(r.parcel_id||'')).toLowerCase().includes(q))&&(!neighborhoods.value||neighborhoods.value==='all'||r.neighborhood===neighborhoods.value));}
+function render(){markers.clearLayers();const list=visible();document.getElementById('count').textContent=list.length+' property records displayed';const out=document.getElementById('results');out.replaceChildren();
+list.forEach(r=>{const p=document.createElement('p');p.textContent=[r.address||'Address unavailable',r.neighborhood||'',r.layer||'',r.parcel_id||''].filter(Boolean).join(' · ');out.append(p);
+if(Number.isFinite(+r.latitude)&&Number.isFinite(+r.longitude)){L.circleMarker([+r.latitude,+r.longitude],{radius:6,color:r.layer==='cut'?'#b36813':r.layer==='work'?'#2764a5':'#17806c',fillOpacity:.8}).bindPopup('<strong>'+clean(r.address||'Address unavailable')+'</strong><p>'+clean(r.layer)+'</p><p>Parcel: '+clean(r.parcel_id||'Unverified')+'</p><p>Source: '+clean(r.source||'Not supplied')+'</p>').addTo(markers);}
+});}
+neighborhoods.addEventListener('change',()=>{const a=areas[neighborhoods.value];if(a)map.setView(a,14);else map.fitBounds(bounds.pad(.25));render()});
+['layer','search'].forEach(id=>document.getElementById(id).addEventListener(id==='search'?'input':'change',render));
+document.getElementById('export').addEventListener('click',()=>{const rows=visible();const keys=['address','parcel_id','neighborhood','layer','latitude','longitude','source','verification_status'];const csv=[keys.join(','),...rows.map(r=>keys.map(k=>'"'+String(r[k]??'').replace(/"/g,'""')+'"').join(','))].join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='vap-west-end-records.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)});
+/* Optional source: add west-end-records.geojson beside this file. Each feature needs coordinates
+ and properties: address, parcel_id, neighborhood, layer (cut/work/landbank), source.
+ Do not assign neighborhoods by approximate center proximity; use official polygons. */
+fetch('./west-end-records.geojson').then(r=>{if(!r.ok)throw Error('No verified West End property dataset published');return r.json()}).then(data=>{
+records=(data.features||[]).filter(f=>f.geometry?.type==='Point').map(f=>({...f.properties,longitude:f.geometry.coordinates[0],latitude:f.geometry.coordinates[1]}));
+document.getElementById('status').textContent='Verified property feed loaded. Filter, inspect and export records.';render();
+}).catch(()=>{document.getElementById('status').textContent='No verified West End property feed connected yet. The map and export controls are ready; property records will appear after the source dataset is added.';render()});
+</script></body></html>
